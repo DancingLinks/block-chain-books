@@ -7,6 +7,8 @@ from textwrap import dedent
 from time import time
 from uuid import uuid4
 from urllib.parse import urlparse
+from ellipticcurve.ecdsa import Ecdsa
+from ellipticcurve.privateKey import PrivateKey
 from flask import Flask, jsonify, request
 
 class Blockchain(object):
@@ -16,7 +18,7 @@ class Blockchain(object):
         self.chain = []
         self.current_transactions = []
         #创建创世区块
-        self.new_block(previous_hash=1,proof=100)
+        self.new_block(previous_hash=1)
 
     def register_node(self,address):
         """
@@ -44,9 +46,6 @@ class Blockchain(object):
             print("\n______\n")
             # 检查block的散列是否正确
             if block['previous_hash'] != self.hash(last_block):
-                return False
-            # 检查工作证明是否正确
-            if not self.valid_proof(last_block['proof'], block['proof']):
                 return False
 
             last_block = block
@@ -82,10 +81,9 @@ class Blockchain(object):
             return True
         return False
 
-    def new_block(self,proof,previous_hash=None):
+    def new_block(self,previous_hash=None):
         """
         创建一个新的块并将其添加到链中
-        :param proof: 由工作证明算法生成证明
         :param previous_hash: 前一个区块的hash值
         :return: 新区块
         """
@@ -93,7 +91,6 @@ class Blockchain(object):
             'index':len(self.chain)+1,
             'timestamp':time(),
             'transactions':self.current_transactions,
-            'proof':proof,
             'previous_hash':previous_hash or self.hash(self.chain[-1]),
         }
 
@@ -103,22 +100,41 @@ class Blockchain(object):
         self.chain.append(block)
         return block
 
-    def new_transaction(self,sender,recipient,amount):
+    def new_transaction(self,sender,recipient,book_id):
         # 将新事务添加到事务列表中
         """
         Creates a new transaction to go into the next mined Block
         :param sender:发送方的地址
         :param recipient:收信人地址
-        :param amount:数量
+        :param book_id:数量
         :return:保存该事务的块的索引
         """
         self.current_transactions.append({
             'sender':sender,
             'recipient':recipient,
-            'amount':amount,
+            'book_id':book_id,
         })
 
         return self.last_block['index'] + 1
+
+    def parse_chain(self):
+        bookset = set()
+        res = {}
+        for block in self.chain:
+            for transaction in block['transactions']:
+                sender = transaction['sender']
+                recipient = transaction['recipient']
+                book_id = transaction['book_id']
+                bookset.add(book_id)
+                if recipient != "0":
+                    if recipient not in res:
+                        res[recipient] = set()
+                    res[recipient].add(book_id)
+                if sender != "0":
+                    res[sender].discard(book_id)
+        return bookset, res
+
+
     @staticmethod
     def hash(block):
         """
@@ -134,7 +150,6 @@ class Blockchain(object):
     def last_block(self):
         # 返回链中的最后一个块
         return self.chain[-1]
-
 
     def proof_of_work(self,last_proof):
         # 工作算法的简单证明
@@ -163,33 +178,43 @@ node_identifier = str(uuid4()).replace('-','')
 # 实例化Blockchain类
 blockchain = Blockchain()
 
-# 进行挖矿请求
-@app.route('/mine',methods=['GET'])
+# 添加图书数据
+@app.route('/mine',methods=['POST'])
 def mine():
 
     # 同步区块
     blockchain.resolve_conflicts()
 
-    # 运行工作算法的证明来获得下一个证明。
-    last_block = blockchain.last_block
-    last_proof = last_block['proof']
-    proof = blockchain.proof_of_work(last_proof)
+    values = request.get_json()
 
-    # 必须得到一份寻找证据的奖赏。
+    # 检查所需要的字段是否位于POST的data中
+    required = ['recipient','book_id','hash']
+    if not all(k in values for k in required):
+        return 'Missing values', 400
+
+    bookset, _ = blockchain.parse_chain()
+    if values['book_id'] in bookset:
+        return 'Book alreadt exises', 401
+
+    if not Ecdsa.verify(values['book_id'], values['hash'], values['recipient']):
+        return 'Verified failure', 402
+
+    last_block = blockchain.last_block
+
+    # 写入图书
     blockchain.new_transaction(
         sender="0",
         recipient=node_identifier,
-        amount=1,
+        book_id=values['book_id'],
     )
 
     # 通过将其添加到链中来构建新的块
     previous_hash = blockchain.hash(last_block)
-    block = blockchain.new_block(proof,previous_hash)
+    block = blockchain.new_block(previous_hash)
     response = {
         'message': "New Block Forged",
         'index': block['index'],
         'transactions': block['transactions'],
-        'proof': block['proof'],
         'previous_hash': block['previous_hash'],
     }
     return jsonify(response), 200
@@ -200,20 +225,27 @@ def new_transactions():
     values = request.get_json()
 
     # 检查所需要的字段是否位于POST的data中
-    required = ['seder','recipient','amount']
+    required = ['sender','recipient','book_id', 'hash']
     if not all(k in values for k in required):
-        return 'Missing values',400
+        return 'Missing values', 400
+
+    if not Ecdsa.verify(values['book_id'], values['hash'], values['recipient']):
+        return 'Verified failure', 402
 
     # 同步区块
     blockchain.resolve_conflicts()
 
+    _, res = blockchain.parse_chain()
+    if values['book_id'] not in res[values['sender']]:
+        return 'Book not exises', 401
+
     #创建一个新的事物
-    index = blockchain.new_transaction(values['sender'], values['recipient'], values['amount'])
+    index = blockchain.new_transaction(values['sender'], values['recipient'], values['book_id'])
 
     response = {'message': f'Transaction will be added to Block {index}'}
     return jsonify(response), 201
 
-# 获取所有块信息
+# 获取链上块信息
 @app.route('/chain',methods=['GET'])
 def chain():
     
@@ -226,12 +258,20 @@ def chain():
     }
     return jsonify(response),200
 
-# 获取所有块信息
+# 获取节点块信息
 @app.route('/chain/local',methods=['GET'])
 def local_chain():
     response = {
         'chain':blockchain.chain,
         'length':len(blockchain.chain),
+    }
+    return jsonify(response),200
+
+# 获取节点
+@app.route('/nodes',methods=['GET'])
+def get_nodes():
+    response = {
+        'nodes': list(blockchain.nodes)
     }
     return jsonify(response),200
 
@@ -252,14 +292,6 @@ def register_nodes():
     }
     return jsonify(response), 201
 
-# 获取节点
-@app.route('/nodes',methods=['GET'])
-def get_nodes():
-    response = {
-        'nodes': list(blockchain.nodes)
-    }
-    return jsonify(response),200
-
 # 解决冲突
 @app.route('/nodes/resolve', methods=['GET'])
 def consensus():
@@ -275,6 +307,20 @@ def consensus():
             'message': 'Our chain is authoritative',
             'chain': blockchain.chain
         }
+
+    return jsonify(response), 200
+
+# 用户注册
+@app.route('/user/register', methods=['GET'])
+def user_register():
+    privateKey = PrivateKey()
+    publicKey = privateKey.publicKey()
+
+    response = {
+        'message': 'User register successfully!',
+        'publicKey': publicKey,
+        'privateKey': privateKey
+    }
 
     return jsonify(response), 200
 
