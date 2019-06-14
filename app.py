@@ -1,7 +1,8 @@
 import hashlib
 import json
 import requests
-import sys
+import sys, getopt
+import requests
 from textwrap import dedent
 from time import time
 from uuid import uuid4
@@ -24,7 +25,8 @@ class Blockchain(object):
         :return:
         """
         prsed_url = urlparse(address)
-        self.nodes.add(prsed_url.netloc)
+        self.nodes.add(prsed_url.netloc or address)
+        self.nodes.discard(f'localhost:{port}')
 
     def valid_chain(self,chain):
         """
@@ -152,6 +154,9 @@ class Blockchain(object):
 # 实例化节点
 app = Flask(__name__)
 
+block = None
+port= None
+
 # 为该节点生成一个全局惟一的地址
 node_identifier = str(uuid4()).replace('-','')
 
@@ -161,6 +166,10 @@ blockchain = Blockchain()
 # 进行挖矿请求
 @app.route('/mine',methods=['GET'])
 def mine():
+
+    # 同步区块
+    blockchain.resolve_conflicts()
+
     # 运行工作算法的证明来获得下一个证明。
     last_block = blockchain.last_block
     last_proof = last_block['proof']
@@ -192,28 +201,36 @@ def new_transactions():
 
     # 检查所需要的字段是否位于POST的data中
     required = ['seder','recipient','amount']
-    if not all(k in values for k in request):
+    if not all(k in values for k in required):
         return 'Missing values',400
+
+    # 同步区块
+    blockchain.resolve_conflicts()
 
     #创建一个新的事物
     index = blockchain.new_transaction(values['sender'], values['recipient'], values['amount'])
+
     response = {'message': f'Transaction will be added to Block {index}'}
     return jsonify(response), 201
 
-# 获取所有快信息
+# 获取所有块信息
 @app.route('/chain',methods=['GET'])
 def full_chain():
+
+    # 同步区块
+    blockchain.resolve_conflicts()
+    
     response = {
         'chain':blockchain.chain,
         'length':len(blockchain.chain),
     }
     return jsonify(response),200
 
-# 添加节点
-@app.route('/nodes/register',methods=['POST'])
+# 添加多个节点
+@app.route('/nodes/registers',methods=['POST'])
 def register_nodes():
-    values = request.get_json()
-    nodes = values.get('nodes')
+    values = json.loads(request.get_json())
+    nodes = values['nodes']
     if nodes is None:
         return "Error: Please supply a valid list of nodes", 400
 
@@ -225,6 +242,14 @@ def register_nodes():
         'total_nodes': list(blockchain.nodes),
     }
     return jsonify(response), 201
+
+# 获取节点
+@app.route('/nodes',methods=['GET'])
+def get_nodes():
+    response = {
+        'nodes': list(blockchain.nodes)
+    }
+    return jsonify(response),200
 
 # 解决冲突
 @app.route('/nodes/resolve', methods=['GET'])
@@ -244,5 +269,42 @@ def consensus():
 
     return jsonify(response), 200
 
+# 加入到网络
+def init_block(block_url):
+    # 获取链中所有节点
+    res = requests.get(f'http://{block_url}/nodes')
+
+    values = json.loads(res.text)
+    nodes = values.get('nodes')
+    nodes.append(block_url)
+    
+    # 本地注册+通知其他节点
+    for node in nodes:
+        blockchain.register_node(node)
+        requests.post(f'http://{node}/nodes/registers',json=json.dumps({'nodes':[f'http://localhost:{port}']}))
+
+    blockchain.resolve_conflicts()
+
+    return True
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0',port=5000,debug=True)
+    block = None
+    # 获取命令行参数
+    try:
+        opts, args = getopt.getopt(sys.argv[1:],"hp:b:")
+    except getopt.GetoptError:
+        print ('app.py -p <port> -b <block>')
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt == '-h':
+            print ('app.py -p <port> -b <block>')
+            sys.exit()
+        elif opt == '-p':
+            port = arg
+        elif opt == "-b":
+            block = arg
+
+    if block and not init_block(block) or not port:
+        sys.exit()
+    
+    app.run(host='0.0.0.0',port=port,debug=False)
