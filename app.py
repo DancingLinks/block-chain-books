@@ -65,7 +65,7 @@ class Blockchain(object):
 
         # 获取并验证网络中的所有节点的链
         for node in neighbours:
-            response = requests.get(f'http://{node}/chain')
+            response = requests.get(f'http://{node}/chain/local')
 
             if response.status_code == 200:
                 length = response.json()['length']
@@ -118,7 +118,7 @@ class Blockchain(object):
             'amount':amount,
         })
 
-        return  self.last_block['index'] + 1
+        return self.last_block['index'] + 1
     @staticmethod
     def hash(block):
         """
@@ -215,11 +215,20 @@ def new_transactions():
 
 # 获取所有块信息
 @app.route('/chain',methods=['GET'])
-def full_chain():
-
+def chain():
+    
     # 同步区块
     blockchain.resolve_conflicts()
-    
+
+    response = {
+        'chain':blockchain.chain,
+        'length':len(blockchain.chain),
+    }
+    return jsonify(response),200
+
+# 获取所有块信息
+@app.route('/chain/local',methods=['GET'])
+def local_chain():
     response = {
         'chain':blockchain.chain,
         'length':len(blockchain.chain),
