@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from ellipticcurve.ecdsa import Ecdsa
 from ellipticcurve.privateKey import PrivateKey
 from ellipticcurve.publicKey import PublicKey
+from ellipticcurve.signature import Signature
 from flask import Flask, jsonify, request
 
 class Blockchain(object):
@@ -198,8 +199,9 @@ def mine():
         return 'Book alreadt exises', 401
 
     publicKey = PublicKey.fromPem(values['recipient'])
+    signature = Signature.fromBase64(values['hash'])
 
-    if not Ecdsa.verify(values['book_id'], values['hash'], publicKey):
+    if not Ecdsa.verify(values['book_id'], signature, publicKey):
         return 'Verified failure', 402
 
     last_block = blockchain.last_block
@@ -233,8 +235,9 @@ def new_transactions():
         return 'Missing values', 400
 
     publicKey = PublicKey.fromPem(values['recipient'])
+    signature = Signature.fromBase64(values['hash'])
 
-    if not Ecdsa.verify(values['book_id'], values['hash'], publicKey):
+    if not Ecdsa.verify(values['book_id'], signature, publicKey):
         return 'Verified failure', 402
 
     # 同步区块
