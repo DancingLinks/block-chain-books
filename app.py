@@ -9,6 +9,7 @@ from uuid import uuid4
 from urllib.parse import urlparse
 from ellipticcurve.ecdsa import Ecdsa
 from ellipticcurve.privateKey import PrivateKey
+from ellipticcurve.publicKey import PublicKey
 from flask import Flask, jsonify, request
 
 class Blockchain(object):
@@ -196,7 +197,9 @@ def mine():
     if values['book_id'] in bookset:
         return 'Book alreadt exises', 401
 
-    if not Ecdsa.verify(values['book_id'], values['hash'], values['recipient']):
+    publicKey = PublicKey.fromPem(values['recipient'])
+
+    if not Ecdsa.verify(values['book_id'], values['hash'], publicKey):
         return 'Verified failure', 402
 
     last_block = blockchain.last_block
@@ -229,7 +232,9 @@ def new_transactions():
     if not all(k in values for k in required):
         return 'Missing values', 400
 
-    if not Ecdsa.verify(values['book_id'], values['hash'], values['recipient']):
+    publicKey = PublicKey.fromPem(values['recipient'])
+
+    if not Ecdsa.verify(values['book_id'], values['hash'], publicKey):
         return 'Verified failure', 402
 
     # 同步区块
@@ -318,8 +323,8 @@ def user_register():
 
     response = {
         'message': 'User register successfully!',
-        'publicKey': publicKey,
-        'privateKey': privateKey
+        'publicKey': publicKey.toPem(),
+        'privateKey': privateKey.toPem()
     }
 
     return jsonify(response), 200
