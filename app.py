@@ -180,6 +180,26 @@ node_identifier = str(uuid4()).replace('-','')
 # 实例化Blockchain类
 blockchain = Blockchain()
 
+# 数据加密
+@app.route('/encoding',methods=['POST'])
+def encoding():
+    values = request.get_json()
+
+    # 检查所需要的字段是否位于POST的data中
+    required = ['private_key','message']
+    if not all(k in values for k in required):
+        return 'Missing values', 400
+
+    privateKey = PrivateKey.fromPem(values['private_key'])
+    signature = Ecdsa.sign(values['message'], privateKey)
+
+    response = {
+        'hash': signature.toBase64()
+    }
+
+    return jsonify(response), 200
+
+
 # 添加图书数据
 @app.route('/mine',methods=['POST'])
 def mine():
@@ -209,7 +229,7 @@ def mine():
     # 写入图书
     blockchain.new_transaction(
         sender="0",
-        recipient=node_identifier,
+        recipient=publicKey.toPem(),
         book_id=values['book_id'],
     )
 
@@ -234,7 +254,7 @@ def new_transactions():
     if not all(k in values for k in required):
         return 'Missing values', 400
 
-    publicKey = PublicKey.fromPem(values['recipient'])
+    publicKey = PublicKey.fromPem(values['sender'])
     signature = Signature.fromBase64(values['hash'])
 
     if not Ecdsa.verify(values['book_id'], signature, publicKey):
@@ -250,7 +270,17 @@ def new_transactions():
     #创建一个新的事物
     index = blockchain.new_transaction(values['sender'], values['recipient'], values['book_id'])
 
-    response = {'message': f'Transaction will be added to Block {index}'}
+    last_block = blockchain.last_block
+
+    # 通过将其添加到链中来构建新的块
+    previous_hash = blockchain.hash(last_block)
+    block = blockchain.new_block(previous_hash)
+    response = {
+        'message': "New Block Forged",
+        'index': block['index'],
+        'transactions': block['transactions'],
+        'previous_hash': block['previous_hash'],
+    }
     return jsonify(response), 201
 
 # 获取链上块信息
@@ -286,7 +316,8 @@ def get_nodes():
 # 添加多个节点
 @app.route('/nodes/registers',methods=['POST'])
 def register_nodes():
-    values = json.loads(request.get_json())
+    values = request.get_json()
+
     nodes = values['nodes']
     if nodes is None:
         return "Error: Please supply a valid list of nodes", 400
@@ -344,7 +375,7 @@ def init_block(block_url):
     # 本地注册+通知其他节点
     for node in nodes:
         blockchain.register_node(node)
-        requests.post(f'http://{node}/nodes/registers',json=json.dumps({'nodes':[f'http://localhost:{port}']}))
+        requests.post(f'http://{node}/nodes/registers',json={'nodes':[f'http://localhost:{port}']})
 
     blockchain.resolve_conflicts()
 
