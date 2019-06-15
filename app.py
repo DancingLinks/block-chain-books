@@ -11,7 +11,7 @@ from ellipticcurve.ecdsa import Ecdsa
 from ellipticcurve.privateKey import PrivateKey
 from ellipticcurve.publicKey import PublicKey
 from ellipticcurve.signature import Signature
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 
 class Blockchain(object):
     def __init__(self):
@@ -130,11 +130,11 @@ class Blockchain(object):
                 bookset.add(book_id)
                 if recipient != "0":
                     if recipient not in res:
-                        res[recipient] = set()
-                    res[recipient].add(book_id)
+                        res[recipient] = []
+                    res[recipient].append(book_id)
                 if sender != "0":
-                    res[sender].discard(book_id)
-        return bookset, res
+                    res[sender].remove(book_id)
+        return list(bookset), res
 
 
     @staticmethod
@@ -181,7 +181,7 @@ node_identifier = str(uuid4()).replace('-','')
 blockchain = Blockchain()
 
 # 数据加密
-@app.route('/encoding',methods=['POST'])
+@app.route('/api/encoding',methods=['POST'])
 def encoding():
     values = request.get_json()
 
@@ -201,7 +201,7 @@ def encoding():
 
 
 # 添加图书数据
-@app.route('/mine',methods=['POST'])
+@app.route('/api/mine',methods=['POST'])
 def mine():
 
     # 同步区块
@@ -245,7 +245,7 @@ def mine():
     return jsonify(response), 200
 
 # 创建交易请求
-@app.route('/transactions/new',methods=['POST'])
+@app.route('/api/transactions/new',methods=['POST'])
 def new_transactions():
     values = request.get_json()
 
@@ -268,7 +268,7 @@ def new_transactions():
         return 'Book not exises', 401
 
     #创建一个新的事物
-    index = blockchain.new_transaction(values['sender'], values['recipient'], values['book_id'])
+    blockchain.new_transaction(values['sender'], values['recipient'], values['book_id'])
 
     last_block = blockchain.last_block
 
@@ -283,8 +283,24 @@ def new_transactions():
     }
     return jsonify(response), 201
 
+# 获取解析后的数据
+@app.route('/api/books',methods=['GET'])
+def books():
+
+    # 同步区块
+    blockchain.resolve_conflicts()
+
+    books, res = blockchain.parse_chain()
+
+    response = {
+        "books": books,
+        "list": res
+    }
+
+    return jsonify(response), 200
+
 # 获取链上块信息
-@app.route('/chain',methods=['GET'])
+@app.route('/api/chain',methods=['GET'])
 def chain():
     
     # 同步区块
@@ -297,7 +313,7 @@ def chain():
     return jsonify(response),200
 
 # 获取节点块信息
-@app.route('/chain/local',methods=['GET'])
+@app.route('/api/chain/local',methods=['GET'])
 def local_chain():
     response = {
         'chain':blockchain.chain,
@@ -306,7 +322,7 @@ def local_chain():
     return jsonify(response),200
 
 # 获取节点
-@app.route('/nodes',methods=['GET'])
+@app.route('/api/nodes',methods=['GET'])
 def get_nodes():
     response = {
         'nodes': list(blockchain.nodes)
@@ -314,7 +330,7 @@ def get_nodes():
     return jsonify(response),200
 
 # 添加多个节点
-@app.route('/nodes/registers',methods=['POST'])
+@app.route('/api/nodes/registers',methods=['POST'])
 def register_nodes():
     values = request.get_json()
 
@@ -332,7 +348,7 @@ def register_nodes():
     return jsonify(response), 201
 
 # 解决冲突
-@app.route('/nodes/resolve', methods=['GET'])
+@app.route('/api/nodes/resolve', methods=['GET'])
 def consensus():
     replaced = blockchain.resolve_conflicts()
 
@@ -350,7 +366,7 @@ def consensus():
     return jsonify(response), 200
 
 # 用户注册
-@app.route('/user/register', methods=['GET'])
+@app.route('/api/user/register', methods=['GET'])
 def user_register():
     privateKey = PrivateKey()
     publicKey = privateKey.publicKey()
@@ -366,7 +382,7 @@ def user_register():
 # 加入到网络
 def init_block(block_url):
     # 获取链中所有节点
-    res = requests.get(f'http://{block_url}/nodes')
+    res = requests.get(f'http://{block_url}/api/nodes')
 
     values = json.loads(res.text)
     nodes = values.get('nodes')
@@ -375,11 +391,26 @@ def init_block(block_url):
     # 本地注册+通知其他节点
     for node in nodes:
         blockchain.register_node(node)
-        requests.post(f'http://{node}/nodes/registers',json={'nodes':[f'http://localhost:{port}']})
+        requests.post(f'http://{node}/api/nodes/registers',json={'nodes':[f'http://localhost:{port}']})
 
     blockchain.resolve_conflicts()
 
     return True
+
+# 主页
+@app.route('/index', methods=['GET'])
+def index_page():
+    return app.send_static_file('html/index.html')
+
+# 图书
+@app.route('/books', methods=['GET'])
+def books_page():
+    return app.send_static_file('html/books.html')
+
+# 主页
+@app.route('/transaction', methods=['GET'])
+def transaction_page():
+    return app.send_static_file('html/transaction.html')
 
 if __name__ == '__main__':
     block = None
