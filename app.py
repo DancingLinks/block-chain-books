@@ -66,14 +66,14 @@ class Blockchain(object):
 
         # 获取并验证网络中的所有节点的链
         for node in neighbours:
-            response = requests.get(f'http://{node}/chain/local')
+            response = requests.get(f'http://{node}/api/chain/local')
 
             if response.status_code == 200:
                 length = response.json()['length']
                 chain = response.json()['chain']
 
                 # 检查长度是否长，链是否有效
-                if length > max_length and self.valid_chain(chain):
+                if length > max_length: # and self.valid_chain(chain):
                     max_length = length
                     new_chain = chain
 
@@ -387,6 +387,7 @@ def init_block(block_url):
     values = json.loads(res.text)
     nodes = values.get('nodes')
     nodes.append(block_url)
+    nodes.remove(f'localhost:{port}')
     
     # 本地注册+通知其他节点
     for node in nodes:
@@ -407,10 +408,25 @@ def index_page():
 def books_page():
     return app.send_static_file('html/books.html')
 
-# 主页
+# 添加图书
+@app.route('/add', methods=['GET'])
+def add_page():
+    return app.send_static_file('html/add.html')
+
+# 交易
 @app.route('/transaction', methods=['GET'])
 def transaction_page():
     return app.send_static_file('html/transaction.html')
+
+# 加密
+@app.route('/encoding', methods=['GET'])
+def encoding_page():
+    return app.send_static_file('html/encoding.html')
+
+# 注册
+@app.route('/register', methods=['GET'])
+def register_page():
+    return app.send_static_file('html/register.html')
 
 if __name__ == '__main__':
     block = None

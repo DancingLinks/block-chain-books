@@ -29,9 +29,9 @@
                         <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
                         <ul class="nav navbar-nav">
                             <li><a href="/index">Home</a></li>
-                            <li class="active"><a href="/books">Books</a></li>
+                            <li><a href="/books">Books</a></li>
                             <li><a href="/add">New</a></li>
-                            <li><a href="/transaction">Transaction</a></li>
+                            <li class="active"><a href="/transaction">Transaction</a></li>
                             <li><a href="/encoding">Encoding</a></li>
                             <li><a href="/register">Register</a></li>
                         </ul>
@@ -50,43 +50,29 @@
             <div class="col-md-8">
                 <div id="app">
                     <div class="panel panel-primary">
-                        <!-- Default panel contents -->
-                        <div class="panel-heading">Book List</div>
-                        <!-- Table -->
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Book Id</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="(book,id) in books">
-                                    <th scope="row">{{ id }}</th>
-                                    <td>{{ book }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                            
-                    <div class="panel panel-primary">
                         <div class="panel-heading">
-                            <h3 class="panel-title">Users</h3>
+                            <h3 class="panel-title">Start a Transaction</h3>
                         </div>
                         <div class="panel-body">
-                            <ul class="list-group">
-                                <li class="list-group-item" v-for="(v,k) in list">
-                                    <p>{{ k }} : </p>
-                                    <br>
-                                    <ul class="list-group">
-                                        <li class="list-group-item" v-for="book in v">
-                                            {{ book }}
-                                        </li>
-                                    </ul>
-                                </li>
-                            </ul>
+                            <div class="form-group">
+                                <label for="sender">Sender</label>
+                                <input v-model="sender" type="text" class="form-control" id="sender">
+                            </div>
+                            <div class="form-group">
+                                <label for="recipient">Recipient</label>
+                                <input v-model="recipient" type="text" class="form-control" id="recipient">
+                            </div>
+                            <div class="form-group">
+                                <label for="book_id">BookId</label>
+                                <input v-model="book_id" type="text" class="form-control" id="book_id">
+                            </div>
+                            <div class="form-group">
+                                <label for="hash">Hash</label>
+                                <input v-model="hash" type="text" class="form-control" id="hash">
+                            </div>
+                            <button class="btn btn-default" v-on:click="submit">Submit</button>
                         </div>
-                    </div>
+                    </div>                      
                 </div>
             <div class="col-md-2"></div>
         </div>
@@ -94,26 +80,27 @@
             var app = new Vue({
                 el: '#app',
                 data: {
-                    books: [],
-                    list: {}
+                    sender: '',
+                    recipient: '',
+                    book_id: '',
+                    hash: ''
                 },
                 methods: {
-                    get_books: function(books) {
-                        this.books = books
+                    redirect: function() {
+                        window.location.href='/books'
                     },
-                    get_list: function(list) {
-                        this.list = list
-                        console.log(list)
+                    submit: function() {
+                        $.ajax({
+                            type:'POST',
+                            url:'/api/transactions/new',
+                            data:JSON.stringify({'sender': this.sender.replace(/\\n/g, "\n"), 'recipient': this.recipient.replace(/\\n/g, "\n"), 'book_id': this.book_id, 'hash': this.hash}),
+                            contentType:'application/json',
+                            dataType:'json',
+                            success:function(res) {
+                                app.redirect()
+                            }
+                        })
                     }
-                }
- 
-            })
-            $.ajax({
-                type:'GET',
-                url:'/api/books',
-                success:function(res) {
-                    app.get_books(res.books)
-                    app.get_list(res.list)
                 }
             })
         </script>
