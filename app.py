@@ -387,7 +387,8 @@ def init_block(block_url):
     values = json.loads(res.text)
     nodes = values.get('nodes')
     nodes.append(block_url)
-    nodes.remove(f'localhost:{port}')
+    if f'localhost:{port}' in nodes:
+        nodes.remove(f'localhost:{port}')
     
     # 本地注册+通知其他节点
     for node in nodes:
